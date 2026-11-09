@@ -1,0 +1,15 @@
+{
+  "display_name": "正文阅读 · Story Reader",
+  "loading_order": 100,
+  "requires": [],
+  "optional": [],
+  "dependencies": [],
+  "js": "index.js",
+  "css": "style.css",
+  "author": "Local custom extension",
+  "homePage": "https://github.com/Kuihuajing/ST-",
+  "version": "1.0.0",
+  "minimum_client_version": "1.13.0",
+  "auto_update": false,
+  "hooks": { "activate": "init" }
+}

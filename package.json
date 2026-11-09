@@ -1,0 +1,10 @@
+{
+  "name": "st-story-reader",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Read assistant story bodies as a continuous, read-only document in SillyTavern.",
+  "license": "MIT",
+  "scripts": { "test": "node --test tests/core.test.mjs" },
+  "engines": { "node": ">=20" }
+}
