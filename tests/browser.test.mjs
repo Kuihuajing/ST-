@@ -53,6 +53,15 @@ try {
     assert.equal(await page.evaluate(() => !!window.readerXss), false);
     assert.equal(external.length, 0);
     check('body-only reading, no auxiliary text, scripts or network resources');
+    await page.locator('[data-action="toc"]').click();
+    const activeChapter = page.locator('.sr-toc button[aria-current="location"]');
+    assert.equal(await activeChapter.innerText(), '第 1 节');
+    await page.locator('.sr-toc button').nth(2).click();
+    assert.equal(await activeChapter.innerText(), '第 3 节');
+    await page.locator('.sr-viewport').evaluate(el => { el.scrollTop = 0; });
+    await page.waitForFunction(() => document.querySelector('.sr-toc button[aria-current]')?.textContent === '第 1 节');
+    await page.locator('[data-action="toc"]').click();
+    check('table of contents follows chapter jumps and scrolling');
     await page.locator('.sr-viewport').evaluate(el => { el.scrollTop = 1100; });
     await page.locator('[data-action="close"]').click();
     assert.equal(await page.locator('.sr-section').count(), 0);
@@ -67,6 +76,11 @@ try {
     assert.equal(await page.locator('[data-action="font-size"]').innerText(), '22');
     check('theme and font controls');
     await page.locator('[data-action="options"]').click();
+    await page.locator('.sr-diagnostics summary').click();
+    const report = await page.locator('.sr-format-list').innerText();
+    assert.ok(report.includes('1 条 · 无标签 · 消息 #5'));
+    assert.ok(!report.includes('UNTAGGED_SENTINEL'));
+    await page.locator('.sr-diagnostics summary').click();
     await page.locator('input[name="fallback"]').check();
     await page.locator('.sr-options button[type="submit"]').click();
     assert.equal(await page.locator('.sr-section').count(), 4);

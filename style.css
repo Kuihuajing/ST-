@@ -30,13 +30,18 @@
 #st-story-reader .sr-options input[type="checkbox"] { appearance: auto; width: 15px; height: 15px; margin: 0; accent-color: var(--sr-accent); }
 #st-story-reader .sr-options p { font: 12px/1.6 system-ui, sans-serif; color: var(--sr-muted); margin: 5px 0; }
 #st-story-reader .sr-options button { border-color: var(--sr-line); }
+#st-story-reader .sr-diagnostics { margin-top: 12px; }
+#st-story-reader .sr-diagnostics summary { cursor: pointer; color: var(--sr-accent); }
+#st-story-reader .sr-format-list { max-height: 150px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
 #st-story-reader .sr-layout { display: flex; flex: 1; min-height: 0; position: relative; }
 #st-story-reader .sr-toc { display: none; width: 156px; flex-shrink: 0; overflow-y: auto; border-right: 1px solid var(--sr-line); padding: 18px 12px; background: var(--sr-panel); }
 #st-story-reader.sr-toc-open .sr-toc { display: flex; flex-direction: column; gap: 3px; }
 #st-story-reader .sr-toc button { text-align: left; font-size: 13px; }
-#st-story-reader .sr-viewport { flex: 1; min-width: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-color: var(--sr-line) transparent; padding: 44px 40px 28px; }
+#st-story-reader .sr-toc button[aria-current="location"] { border-color: var(--sr-accent); background: color-mix(in srgb, var(--sr-accent) 16%, var(--sr-panel)); box-shadow: inset 3px 0 var(--sr-accent); color: var(--sr-accent); font-weight: 700; }
+#st-story-reader .sr-viewport { flex: 1; min-width: 0; container-type: size; overflow-y: auto; overscroll-behavior: contain; scrollbar-color: var(--sr-line) transparent; padding: 44px 40px 28px; }
 #st-story-reader .sr-article { max-width: 740px; margin: 0 auto; font: var(--sr-font-size)/1.95 "Noto Serif SC", "Source Han Serif SC", "SimSun", "Songti SC", serif; overflow-wrap: anywhere; color: var(--sr-fg); }
 #st-story-reader .sr-section { margin: 0; }
+#st-story-reader .sr-section:last-child { min-block-size: max(0px, calc(100cqh - 24px)); }
 #st-story-reader .sr-section + .sr-section::before { content: "·  ·  ·"; display: block; color: var(--sr-muted); text-align: center; margin: 1.8em 0; font: 15px/1.5 serif; letter-spacing: .25em; }
 #st-story-reader .sr-article p { margin: 0 0 1em; line-height: inherit; font-size: inherit; }
 #st-story-reader .sr-article h1, #st-story-reader .sr-article h2, #st-story-reader .sr-article h3 { white-space: normal; margin: 1.3em 0 .8em; font-size: 1.2em; color: inherit; }

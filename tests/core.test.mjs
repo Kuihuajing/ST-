@@ -38,9 +38,33 @@ test('supports custom tag without allowing arbitrary regex or hidden tags', () =
     assert.equal(normalizeTag('<story>'), 'story');
 });
 test('empty and malformed messages do not break extraction', () => {
-    assert.deepEqual(collectStory(null), { sections: [], skipped: 0 });
+    assert.deepEqual(collectStory(null), { sections: [], skipped: 0, skippedFormats: [] });
     assert.equal(extractBody('<content>  </content>'), null);
-    assert.deepEqual(collectStory([null, {}, {mes: 12}]), {sections: [], skipped: 0});
+    assert.deepEqual(collectStory([null, {}, {mes: 12}]), {sections: [], skipped: 0, skippedFormats: []});
+});
+test('reads mixed body tags and a legacy body heading', () => {
+    assert.equal(extractBody('<正文>第一段</正文><content>第二段</content><故事>第三段</故事>', { tag: '<故事>' }).text, '第一段\n\n第二段\n\n第三段');
+    assert.equal(extractBody('<正文>雨停了。\n<StatusBlock>状态</StatusBlock>状态栏以后的尾注').text, '雨停了。');
+});
+test('recovers legacy narrative after planning, OS and leading notes or before a footer', () => {
+    for (const message of [
+        '规划</konatan_planning~>雨停了。<tucao>附言</tucao>',
+        '<konatan_planning~><content>示例</content></konatan_planning~>雨停了。',
+        '<OS>附言</OS>\n<tucao>附言</tucao>\n雨停了。',
+        '雨停了。<tucao>附言',
+    ]) assert.equal(extractBody(message).text, '雨停了。');
+});
+test('ambiguous notes and fake story examples are not extracted', () => {
+    for (const message of ['<OS>注释</OS>', '<OS>未结束注释', '<tucao><正文>示例</正文></tucao>', '<konatan_planning~><正文>未闭合规划']) {
+        assert.equal(extractBody(message), null);
+    }
+});
+test('skipped formats are grouped without exposing message text or attributes', () => {
+    const chat = [{ mes: '<未知 value="private">private text</未知>' }, { mes: '<未知>different text</未知>' }, { mes: 'private plain text' }];
+    assert.deepEqual(collectStory(chat).skippedFormats, [
+        { label: '<未知> </未知>', count: 2, examples: [0, 1] },
+        { label: '无标签', count: 1, examples: [2] },
+    ]);
 });
 test('strips comments and nested auxiliary content from a body', () => {
     assert.equal(extractBody('<content>正文<!-- hidden --><analysis>plan</analysis></content>').text, '正文');

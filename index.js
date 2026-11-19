@@ -5,6 +5,7 @@ const ID = 'st-story-reader';
 const DEFAULTS = { tag: 'content', fallback: false, fontSize: 20, theme: 'paper', positions: {} };
 let dialog, viewport, article, sidebar, status, titleElement;
 let activeKey = '', currentTitle = '', timer, progressTimer, previousFocus;
+let chapters = [], activeChapter = -1;
 let initialized = false, converter;
 const context = () => globalThis.SillyTavern.getContext();
 
@@ -64,11 +65,36 @@ function renderBody(text) {
     return wrapper;
 }
 
+function currentChapter() {
+    const readingLine = viewport.getBoundingClientRect().top + 26;
+    let low = 0, high = chapters.length;
+    while (low < high) {
+        const middle = (low + high) >>> 1;
+        if (chapters[middle].section.getBoundingClientRect().bottom > readingLine) high = middle;
+        else low = middle + 1;
+    }
+    return Math.min(low, chapters.length - 1);
+}
+
+function markCurrentChapter(reveal = false) {
+    const current = currentChapter();
+    const changed = current !== activeChapter;
+    if (changed) {
+        chapters[activeChapter]?.nav.removeAttribute('aria-current');
+        activeChapter = current;
+        chapters[current]?.nav.setAttribute('aria-current', 'location');
+    }
+    if (current < 0 || (!changed && !reveal) || !dialog.classList.contains('sr-toc-open')) return;
+    const nav = chapters[current].nav.getBoundingClientRect();
+    const toc = sidebar.getBoundingClientRect();
+    if (nav.top < toc.top + 4) sidebar.scrollTop += nav.top - toc.top - 4;
+    else if (nav.bottom > toc.bottom - 4) sidebar.scrollTop += nav.bottom - toc.bottom + 4;
+}
+
 function capturePosition() {
-    if (!viewport || !article?.children.length) return null;
-    const top = viewport.getBoundingClientRect().top;
-    const section = [...article.querySelectorAll('.sr-section')].find(item => item.getBoundingClientRect().bottom > top + 16);
+    const section = chapters[currentChapter()]?.section;
     if (!section) return null;
+    const top = viewport.getBoundingClientRect().top;
     const rect = section.getBoundingClientRect();
     return { index: Number(section.dataset.messageIndex), fraction: Math.min(1, Math.max(0, (top - rect.top) / Math.max(rect.height, 1))) };
 }
@@ -88,11 +114,13 @@ function savePosition() {
 
 function restorePosition(position) {
     viewport.scrollTop = 0;
-    if (!position) return;
-    const section = [...article.querySelectorAll('.sr-section')].find(item => Number(item.dataset.messageIndex) === position.index);
-    if (!section) return;
-    const fraction = Math.min(1, Math.max(0, Number(position.fraction) || 0));
-    viewport.scrollTop += section.getBoundingClientRect().top - viewport.getBoundingClientRect().top + section.getBoundingClientRect().height * fraction;
+    const section = position && chapters.find(item => Number(item.section.dataset.messageIndex) === position.index)?.section;
+    if (section) {
+        const rect = section.getBoundingClientRect();
+        const fraction = Math.min(1, Math.max(0, Number(position.fraction) || 0));
+        viewport.scrollTop = rect.top - viewport.getBoundingClientRect().top + rect.height * fraction;
+    }
+    markCurrentChapter(true);
 }
 
 function applyAppearance() {
@@ -116,6 +144,8 @@ function rebuild({ restore = true } = {}) {
     const result = collectStory(context().chat, { tag: normalizeTag(settings().tag), fallback: !!settings().fallback });
     article.replaceChildren();
     sidebar.replaceChildren();
+    chapters = [];
+    activeChapter = -1;
     let count = 0;
     for (const [index, item] of result.sections.entries()) {
         const section = document.createElement('section');
@@ -128,14 +158,20 @@ function rebuild({ restore = true } = {}) {
         article.append(section);
         const nav = button(`第 ${index + 1} 节`, () => {
             viewport.scrollTop += section.getBoundingClientRect().top - viewport.getBoundingClientRect().top - 24;
+            markCurrentChapter();
             savePosition();
             if (window.matchMedia('(max-width: 700px)').matches) setSidebar(false);
         });
         nav.title = `原聊天第 ${item.messageIndex + 1} 条`;
         sidebar.append(nav);
+        chapters.push({ section, nav });
     }
     status.textContent = `${result.sections.length} 节 · ${count.toLocaleString()} 字符`;
     if (result.skipped) status.textContent += ` · ${result.skipped} 条未识别正文`;
+    dialog.querySelector('.sr-diagnostics').hidden = !result.skipped;
+    dialog.querySelector('.sr-format-list').textContent = result.skippedFormats.map(group =>
+        `${group.count} 条 · ${group.label} · 消息 #${group.examples.join('、#')}`,
+    ).join('\n');
     if (!result.sections.length) {
         const empty = document.createElement('div');
         empty.className = 'sr-empty';
@@ -143,7 +179,7 @@ function rebuild({ restore = true } = {}) {
         heading.textContent = '正文会在这里连成一篇';
         const help = document.createElement('p');
         help.textContent = context().chat?.length
-            ? `当前聊天中没有完整的 <${normalizeTag(settings().tag)}> 正文。可在“选项”中修改正文标签；无标签的作品可开启兼容模式。`
+            ? '当前聊天中没有识别到正文。可在“选项”查看未识别格式，或为无标签的作品开启兼容模式。'
             : '先在酒馆中打开一段聊天，再进入阅读模式。';
         empty.append(heading, help);
         article.append(empty);
@@ -153,8 +189,10 @@ function rebuild({ restore = true } = {}) {
 }
 
 function setSidebar(open) {
+    const position = capturePosition();
     dialog.classList.toggle('sr-toc-open', open);
     dialog.querySelector('[data-action="toc"]').setAttribute('aria-expanded', String(open));
+    restorePosition(position);
 }
 
 function exportText() {
@@ -201,8 +239,14 @@ function ensureDialog() {
       <form class="sr-options" hidden>
         <label>正文标签 <input name="tag" type="text" placeholder="content" maxlength="60" autocomplete="off"></label>
         <label class="sr-checkbox"><input name="fallback" type="checkbox">未标正文标签时，也显示 AI 回复</label>
-        <p>默认仅提取完整正文标签内的内容。兼容模式会过滤已知分析及状态标签，但无法识别所有自定义格式。</p>
+        <p>自动识别常见正文标签和旧预设边界。也可添加一个自定义标签。</p>
         <button type="submit">应用</button>
+        <details class="sr-diagnostics" hidden>
+          <summary>查看未识别格式</summary>
+          <p>按标签归类，仅列次数和示例消息编号。</p>
+          <pre class="sr-format-list" tabindex="0"></pre>
+          <button type="button" data-action="copy-formats">复制格式报告</button>
+        </details>
       </form>
       <div class="sr-layout"><aside class="sr-toc" aria-label="正文目录"></aside><div class="sr-viewport" tabindex="0" aria-label="作品正文"><article class="sr-article"></article><footer class="sr-end">读到这里，也可以继续写下去。</footer></div></div>
     `;
@@ -218,6 +262,17 @@ function ensureDialog() {
         smaller: () => changeFont(-2), larger: () => changeFont(2),
         theme: () => { const position = capturePosition(); settings().theme = settings().theme === 'night' ? 'paper' : 'night'; applyAppearance(); restorePosition(position); saveSettings(); },
         refresh: () => rebuild(), export: exportText,
+        'copy-formats': async () => {
+            const report = dialog.querySelector('.sr-format-list');
+            try {
+                await navigator.clipboard.writeText(report.textContent);
+                notify('已复制格式报告');
+            } catch {
+                const selection = window.getSelection();
+                selection?.selectAllChildren(report);
+                notify('已选中格式报告，可按 Ctrl+C 复制');
+            }
+        },
         options: () => {
             const form = dialog.querySelector('.sr-options');
             form.hidden = !form.hidden;
@@ -228,7 +283,7 @@ function ensureDialog() {
         },
     };
     for (const [name, callback] of Object.entries(actions)) dialog.querySelector(`[data-action="${name}"]`).addEventListener('click', callback);
-    dialog.querySelector('form').addEventListener('submit', event => {
+    dialog.querySelector('.sr-options').addEventListener('submit', event => {
         event.preventDefault();
         const form = event.currentTarget;
         settings().tag = normalizeTag(form.elements.tag.value);
@@ -237,7 +292,11 @@ function ensureDialog() {
         saveSettings();
         rebuild({ restore: false });
     });
-    viewport.addEventListener('scroll', () => { clearTimeout(progressTimer); progressTimer = setTimeout(savePosition, 350); }, { passive: true });
+    viewport.addEventListener('scroll', () => {
+        markCurrentChapter();
+        clearTimeout(progressTimer);
+        progressTimer = setTimeout(savePosition, 350);
+    }, { passive: true });
     dialog.addEventListener('cancel', event => { event.preventDefault(); savePosition(); dialog.close(); });
     dialog.addEventListener('close', () => {
         clearTimeout(timer);
@@ -245,6 +304,8 @@ function ensureDialog() {
         // Drop extracted text from the DOM when closing; the original chat is untouched.
         article.replaceChildren();
         sidebar.replaceChildren();
+        chapters = [];
+        activeChapter = -1;
         activeKey = '';
         if (previousFocus?.isConnected) previousFocus.focus({ preventScroll: true });
     });
