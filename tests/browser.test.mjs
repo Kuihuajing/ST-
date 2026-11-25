@@ -89,8 +89,9 @@ try {
     assert.equal(await page.locator('.sr-section').count(), 3);
     await page.locator('[data-action="options"]').click();
     check('untagged compatibility is explicit and reversible');
-    await page.evaluate(() => { window.fixtureChat.push({mes:'<content>一盏新灯亮了。</content>'});window.emitFixtureEvent('GENERATION_ENDED'); });
+    await page.evaluate(() => { window.fixtureChat.push({mes:'<content>一盏新灯亮了。<StatusBlock>不展示的状态</StatusBlock>'});window.emitFixtureEvent('GENERATION_ENDED'); });
     await page.waitForFunction(() => document.querySelectorAll('.sr-section').length === 4);
+    assert.equal(await page.locator('.sr-section').last().innerText(), '一盏新灯亮了。');
     await page.evaluate(() => { window.fixtureChat[1].mes = '<content>修改后的第一节。</content>'; window.emitFixtureEvent('MESSAGE_EDITED'); });
     await page.waitForFunction(() => document.querySelector('.sr-section')?.textContent.includes('修改后的第一节'));
     check('new generations and message edits refresh the view');

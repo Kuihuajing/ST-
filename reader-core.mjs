@@ -23,6 +23,43 @@ function stripBlocks(text, names, replacement = '') {
     return text.replace(new RegExp(`${openingTag(names)}[\\s\\S]*?(?:<\\/\\1\\s*>|$)`, 'gi'), replacement);
 }
 
+const maskBlock = block => ' '.repeat(block.length);
+const LEGACY_OS_LINE = /(?:^|\n)[ \t]*(?:\[OS\]|\{OS\})[ \t]*(?=\n|$)/gi;
+const BODY_HEADING = /(?:^|\n)[ \t]*【[ \t]*(?:正文[ \t]*(?:开始|開始)|正式正文)[ \t]*】/gi;
+const LEGACY_BODY_END = new RegExp(`<\\/(?:content|正文)\\s*>|${openingTag(FOOTER)}|【[ \\t]*正文(?:结束|結束)[ \\t]*】`, 'i');
+const SEPARATOR_LINES = /^(?:[ \t]*(?:-{3,}|—{2,})?[ \t]*\n)+/;
+const ONLY_SEPARATORS = /^(?:[ \t]*(?:-{3,}|—{2,})?[ \t]*\n)*[ \t]*(?:-{3,}|—{2,})?[ \t]*$/;
+const PLANNING_HEADING = /(?:^|\n)[ \t]*(?:\*{1,2})?【[ \t]*(?:开始思考|结束思考|正文输出流程预演|导演检查(?:与分析)?|部分[一二三四五].{0,20}?(?:预演|检查|硬规则))[ \t]*】/;
+
+function extractLegacyMarkedBody(text) {
+    // Keep offsets while excluding examples inside closed planning and auxiliary blocks.
+    // An unclosed planning tag can still be recovered if both story boundaries exist.
+    const closedPlanning = new RegExp(`${openingTag(PLANNING)}[\\s\\S]*?<\\/\\1\\s*>`, 'gi');
+    const visible = stripBlocks(text.replace(closedPlanning, maskBlock), AUXILIARY, maskBlock);
+    const heading = [...visible.matchAll(BODY_HEADING)].at(-1);
+    const os = [...visible.matchAll(LEGACY_OS_LINE)].at(-1);
+    const startMarker = heading ?? os;
+    if (!startMarker) return undefined;
+
+    const offset = startMarker.index + startMarker[0].length;
+    const prefix = visible.slice(0, startMarker.index);
+    const tail = text.slice(offset);
+    // Ignore lookalike closing tags in auxiliary blocks. A footer's opening tag
+    // is itself a boundary, so only mask notes that are not footers here.
+    const end = stripBlocks(tail, 'os|details', maskBlock).search(LEGACY_BODY_END);
+    const planningOpen = new RegExp(openingTag(PLANNING), 'i').test(prefix);
+    const osBeforeHeading = heading && os && os.index < heading.index
+        && ONLY_SEPARATORS.test(visible.slice(os.index + os[0].length, heading.index));
+    // Bare OS is ambiguous. Only trust it without a heading when a body end
+    // tag independently confirms the boundary. A plain footer is not enough.
+    if (!heading && (end === -1 || !/^<\/(?:content|正文)\s*>/i.test(tail.slice(end)))) return null;
+    if (planningOpen && (!osBeforeHeading || end === -1) && heading) return null;
+
+    const body = stripBlocks(stripBlocks((end === -1 ? tail : tail.slice(0, end)).replace(SEPARATOR_LINES, ''), PLANNING), AUXILIARY)
+        .trim().replace(/^<(?:content|正文)(?:\s[^>]*)?>/i, '').trim();
+    return /[\p{L}\p{N}]/u.test(body) && !PLANNING_HEADING.test(body) ? { text: body, tagged: true } : null;
+}
+
 function afterPlanning(text) {
     // Some saved messages retained the closing marker but lost the opening marker.
     const stripped = stripBlocks(text, PLANNING);
@@ -48,12 +85,14 @@ function legacyBody(text) {
 
 export function extractBody(text, options = DEFAULT_OPTIONS) {
     const source = String(text ?? '').replace(/\r\n?/g, '\n').replace(/<!--[\s\S]*?(?:-->|$)/g, '').trim();
+    const legacyMarked = extractLegacyMarkedBody(source);
+    if (legacyMarked) return legacyMarked;
     const clean = afterPlanning(source);
     const tags = `${escapeRegex(normalizeTag(options.tag))}|content|正文`;
     const open = openingTag(tags);
     // Mask auxiliary sections before looking for explicit tags, including examples
     // of the body format inside an OS or end note.
-    const marked = stripBlocks(clean, AUXILIARY, block => ' '.repeat(block.length));
+    const marked = stripBlocks(clean, AUXILIARY, maskBlock);
     const blocks = [];
     const boundaries = new RegExp(`${open}|<\\/(${tags})\\s*>`, 'gi');
     let current;
@@ -67,12 +106,18 @@ export function extractBody(text, options = DEFAULT_OPTIONS) {
     }
     // Older presets can use 正文 as a heading, with no closing tag.
     if (current?.tag === '正文') blocks.push(legacyBody(clean.slice(current.start).trim()).text);
+    if (current?.tag === 'content') {
+        // A recognized footer can end an older reply whose body tag was left open.
+        const tail = clean.slice(current.start);
+        const footer = stripBlocks(tail, 'os|details', maskBlock).search(new RegExp(openingTag(FOOTER), 'i'));
+        if (footer !== -1) blocks.push(stripBlocks(tail.slice(0, footer), AUXILIARY).trim());
+    }
     const taggedBody = blocks.filter(Boolean).join('\n\n');
     if (taggedBody) return { text: taggedBody, tagged: true };
-    if (blocks.length || current) return null;
+    if (blocks.length || current || legacyMarked === null) return null;
 
     const legacy = legacyBody(clean);
-    if (legacy.text && (options.fallback || clean !== source || legacy.hasBoundary)) {
+    if (/[\p{L}\p{N}]/u.test(legacy.text) && !PLANNING_HEADING.test(legacy.text) && (options.fallback || clean !== source || legacy.hasBoundary)) {
         return { text: legacy.text, tagged: false };
     }
     return null;

@@ -26,6 +26,39 @@ test('does not extract example content inside analysis', () => {
 test('rejects incomplete body and incomplete analysis even in fallback mode', () => {
     assert.equal(extractBody('<content>unfinished', { fallback: true }), null);
     assert.equal(extractBody('<think>secret <content>not body</content>', { fallback: true }), null);
+    assert.equal(extractBody('<content>unfinished<OS>example <StatusBlock>status</StatusBlock></OS>'), null);
+    assert.equal(extractBody('<think_fox~>plan <content>example<StatusBlock>status</StatusBlock>'), null);
+});
+test('recovers an unclosed content block when the reply reaches a recognized footer', () => {
+    const variants = [
+        '<think_fox~>规划</think_fox~><content>雨停了。<StatusBlock><CharacterStatus>状态</CharacterStatus></StatusBlock><fox_tip>尾注</fox_tip>',
+        '<content>雨停了。<fox_selc>选项</fox_selc>',
+        '<think_fox~>规划</think_fox~><head><content>雨停了。<statusblock>状态</statusblock>',
+        '<content>雨停了。<OS>注释 <StatusBlock>示例</StatusBlock></OS><fox_tip>尾注</fox_tip>',
+    ];
+    for (const message of variants) assert.deepEqual(extractBody(message), { text: '雨停了。', tagged: true });
+});
+test('starts at the legacy OS body heading and stops before closing tags or footers', () => {
+    const prefix = '规划提纲\n\n[OS]\n---\n【正文开始】\n';
+    for (const message of [
+        `${prefix}雨停了。\n<StatusBlock>状态</StatusBlock>`,
+        `${prefix}雨停了。\n</content>\n<fox_selc>选项</fox_selc>`,
+        `<think_fox~>${prefix}雨停了。\n<StatusBlock>状态</StatusBlock>`,
+        '规划\r\n{OS}\r\n【正文開始】 雨停了。\r\n【正文結束】',
+    ]) assert.deepEqual(extractBody(message), { text: '雨停了。', tagged: true });
+});
+test('ignores legacy heading examples inside closed planning and skips separator-only replies', () => {
+    const example = '\n[OS]\n---\n【正文开始】\n格式示例';
+    assert.deepEqual(extractBody(`<think_fox~>${example}</think_fox~><content>雨停了。</content>`), { text: '雨停了。', tagged: true });
+    assert.equal(extractBody(`<think_fox~>${example}`), null);
+    assert.equal(extractBody(`<think_fox~>${example}</think_fox~>——`), null);
+});
+test('recognizes legacy headings without OS and OS without a heading when the end is known', () => {
+    assert.equal(extractBody('规划\n【正式正文】\n雨停了。\n<StatusBlock>状态</StatusBlock>').text, '雨停了。');
+    assert.equal(extractBody('规划\n[OS]\n---\n雨停了。\n</content>').text, '雨停了。');
+    assert.equal(extractBody('规划\n[OS]\n<content>雨停了。</content>').text, '雨停了。');
+    assert.equal(extractBody('规划\n[OS]\n规划提纲\n<StatusBlock>状态</StatusBlock>'), null);
+    assert.equal(extractBody('【导演检查】\n规划提纲\n<StatusBlock>状态</StatusBlock>'), null);
 });
 test('explicit fallback removes auxiliary blocks and details', () => {
     assert.equal(extractBody('普通回复'), null);
