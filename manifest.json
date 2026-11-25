@@ -8,7 +8,7 @@
   "css": "style.css",
   "author": "Local custom extension",
   "homePage": "https://github.com/Kuihuajing/ST-",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "minimum_client_version": "1.13.0",
   "auto_update": false,
   "hooks": { "activate": "init" }

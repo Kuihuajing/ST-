@@ -69,15 +69,33 @@ function afterPlanning(text) {
     return stripped.slice(start).trim();
 }
 
+const FLOOR_LABEL_LINE = /^[（(][ \t]*第[ \t]*[0-9０-９]+[ \t]*[楼樓][ \t]*[）)][ \t]*(?:\n|$)/;
+
+function recoverUnclosedKonatan(text) {
+    if (!/^<konatan_planning~?>[ \t]*\n/i.test(text)) return '';
+
+    // This layout uses stand-alone comment and status blocks around the story.
+    // Require both blocks to be complete before discarding the unclosed plan.
+    const note = /^[ \t]*<tucao>[ \t]*\n[\s\S]*?^[ \t]*<\/tucao>[ \t]*\n/im.exec(text);
+    if (!note) return '';
+    const tail = text.slice(note.index + note[0].length);
+    const status = /^[ \t]*<StatusBlock>[ \t]*\n[\s\S]*?^[ \t]*<\/StatusBlock>[ \t]*$/im.exec(tail);
+    if (!status) return '';
+
+    const body = tail.slice(0, status.index).trim();
+    const unexpectedTag = new RegExp(`<\\/?(?:${PLANNING}|${AUXILIARY}|content|正文|advice)(?=[\\s>])`, 'i');
+    return unexpectedTag.test(body) ? '' : body;
+}
+
 function legacyBody(text) {
     // A leading note can precede the story. The same markers later in a reply
     // are treated as a boundary, so their contents do not become story text.
     const leadingNote = new RegExp(`^${openingTag('os|tucao')}[\\s\\S]*?<\\/\\1\\s*>`, 'i');
     let body = text;
     let hasBoundary = false;
-    for (let match; (match = body.match(leadingNote));) {
+    for (let match; (match = leadingNote.exec(body) ?? FLOOR_LABEL_LINE.exec(body));) {
         body = body.slice(match[0].length).trimStart();
-        hasBoundary = true;
+        if (match[1]) hasBoundary = true;
     }
     const end = body.search(new RegExp(openingTag(AUXILIARY), 'i'));
     return { text: (end === -1 ? body : body.slice(0, end)).trim(), hasBoundary: hasBoundary || end !== -1 };
@@ -116,7 +134,7 @@ export function extractBody(text, options = DEFAULT_OPTIONS) {
     if (taggedBody) return { text: taggedBody, tagged: true };
     if (blocks.length || current || legacyMarked === null) return null;
 
-    const legacy = legacyBody(clean);
+    const legacy = legacyBody(clean || recoverUnclosedKonatan(source));
     if (/[\p{L}\p{N}]/u.test(legacy.text) && !PLANNING_HEADING.test(legacy.text) && (options.fallback || clean !== source || legacy.hasBoundary)) {
         return { text: legacy.text, tagged: false };
     }

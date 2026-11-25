@@ -92,6 +92,28 @@ test('ambiguous notes and fake story examples are not extracted', () => {
         assert.equal(extractBody(message), null);
     }
 });
+test('skips leading floor labels and notes to recover the old story body', () => {
+    const prefix = '<konatan_planning~>提纲</konatan_planning~>\n';
+    const story = '雨停了。\n\n她说：“（第8楼）是昨天记下来的。”';
+    for (const label of ['（第8楼）', '(第 １０ 樓)']) {
+        assert.equal(extractBody(prefix + label + '\n<tucao>前言</tucao>\n\n' + story + '\n<StatusBlock>状态</StatusBlock>').text, story);
+        assert.equal(extractBody(prefix + label + '\n' + story + '\n<tucao>尾注</tucao>').text, story);
+        assert.equal(extractBody(prefix + label + '\n<tucao>前言</tucao>\n<StatusBlock>状态</StatusBlock>'), null);
+    }
+    assert.equal(extractBody('（第0楼）\n欢迎来到图书馆。'), null);
+});
+
+test('recovers an unclosed Konatan reply only between complete stand-alone note and status blocks', () => {
+    const prefix = '<konatan_planning~>\n提纲\n<tucao>\n前言\n</tucao>\n\n';
+    const story = '雨停了。\n\n她推开门。';
+    const footer = '\n\n<StatusBlock>\n状态\n</StatusBlock>\n\n<advice>尾注</advice>';
+    assert.equal(extractBody(prefix + story + footer).text, story);
+    assert.equal(extractBody(prefix + story + '\n<StatusBlock>\n状态'), null);
+    assert.equal(extractBody('<konatan_planning~>\n' + story + footer), null);
+    assert.equal(extractBody(prefix + '【导演检查】\n提纲' + footer), null);
+    assert.equal(extractBody(prefix + '<content>示例</content>' + footer), null);
+});
+
 test('skipped formats are grouped without exposing message text or attributes', () => {
     const chat = [{ mes: '<未知 value="private">private text</未知>' }, { mes: '<未知>different text</未知>' }, { mes: 'private plain text' }];
     assert.deepEqual(collectStory(chat).skippedFormats, [
